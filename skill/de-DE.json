@@ -88,6 +88,19 @@
                     ]
                 },
                 {
+                    "name": "NaviSonicPlayPlaylistRandom",
+                    "slots": [
+                        {
+                            "name": "playlist",
+                            "type": "playlist_names"
+                        }
+                    ],
+                    "samples": [
+                        "Zufallswiedergabe von Playlist {playlist}",
+                        "Zufallswiedergabe der Playlist {playlist}"
+                    ]
+                },
+                {
                     "name": "NaviSonicSongDetails",
                     "slots": [],
                     "samples": [
@@ -100,7 +113,11 @@
                         "welcher Künstler ist das",
                         "welche Band ist das",
                         "was ist das für ein Song",
-                        "wie heißt der Song"
+                        "wie heißt der Song",
+                        "was höre ich gerade",
+                        "welcher Titel läuft",
+                        "welcher Track ist das",
+                        "welcher Song ist das"
                     ]
                 },
                 {
@@ -196,6 +213,36 @@
                 {
                     "name": "playlist_names",
                     "values": [
+                        {
+                            "name": {
+                                "value": "Meditative Mind",
+                                "synonyms": [
+                                    "meditative",
+                                    "meditative minds",
+                                    "meditative mind"
+                                ]
+                            }
+                        },
+                        {
+                            "name": {
+                                "value": "Hardcore"
+                            }
+                        },
+                        {
+                            "name": {
+                                "value": "Progressive"
+                            }
+                        },
+                        {
+                            "name": {
+                                "value": "Electro"
+                            }
+                        },
+                        {
+                            "name": {
+                                "value": "Ye"
+                            }
+                        },
                         {
                             "name": {
                                 "value": "Background Music"
