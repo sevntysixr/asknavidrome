@@ -19,16 +19,12 @@ import asknavidrome.subsonic_api as api
 import asknavidrome.media_queue as queue
 import asknavidrome.controller as controller
 
-# Create web service
 app = Flask(__name__)
-
-# Create skill object
 sb = SkillBuilder()
 
-# Setup Logging
-logger = logging.getLogger()  # Create logger
+logger = logging.getLogger()
 level = logging.getLevelName('DEBUG')
-logger.setLevel(level)  # Set logger log level
+logger.setLevel(level)
 
 log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -37,10 +33,6 @@ handler.setLevel(level)
 handler.setFormatter(log_formatter)
 
 logger.addHandler(handler)
-
-#
-# Get service configuration
-#
 
 logger.info('AskNavidrome 0.10!')
 logger.debug('Getting configuration from the environment...')
@@ -127,7 +119,6 @@ except NameError as err:
 
 logger.debug('Configuration has been successfully loaded')
 
-# Set log level based on config value
 if 'NAVI_DEBUG' in os.environ:
     navidrome_log_level = int(os.getenv('NAVI_DEBUG'))
 
@@ -148,7 +139,6 @@ if 'NAVI_DEBUG' in os.environ:
         logger.setLevel(logging.WARNING)
         logger.warning('Log level set to WARNING')
 
-# Create a shareable queue
 BaseManager.register('MediaQueue', queue.MediaQueue)
 manager = BaseManager()
 manager.start()
@@ -157,7 +147,6 @@ logger.debug('MediaQueue object created...')
 
 backgroundProcess = None
 
-# Connect to Navidrome
 connection = api.SubsonicConnection(navidrome_url,
                                     navidrome_user,
                                     navidrome_passwd,
@@ -173,13 +162,7 @@ except:
 logger.info('AskNavidrome Web Service is ready to start!')
 
 
-#
-# Handler Classes
-#
-
 class LaunchRequestHandler(AbstractRequestHandler):
-    """Handle LaunchRequest and NavigateHomeIntent"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return (
             is_request_type('LaunchRequest')(handler_input) or
@@ -188,17 +171,13 @@ class LaunchRequestHandler(AbstractRequestHandler):
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In LaunchRequestHandler')
-
         connection.ping()
         speech = sanitise_speech_output('Bereit!')
-
         handler_input.response_builder.speak(speech).ask(speech)
         return handler_input.response_builder.response
 
 
 class CheckAudioInterfaceHandler(AbstractRequestHandler):
-    """Check if device supports audio play."""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         if handler_input.request_envelope.context.system.device:
             return False
@@ -207,16 +186,12 @@ class CheckAudioInterfaceHandler(AbstractRequestHandler):
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In CheckAudioInterfaceHandler')
-
         _ = handler_input.attributes_manager.request_attributes['_']
         handler_input.response_builder.speak('Dieses Gerät wird nicht unterstützt.').set_should_end_session(True)
-
         return handler_input.response_builder.response
 
 
 class SkillEventHandler(AbstractRequestHandler):
-    """Close session for skill events or when session ends."""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return (handler_input.request_envelope.request.object_type.startswith(
                 'AlexaSkillEvent') or
@@ -224,28 +199,21 @@ class SkillEventHandler(AbstractRequestHandler):
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In SkillEventHandler')
-
         return handler_input.response_builder.response
 
 
 class HelpHandler(AbstractRequestHandler):
-    """Handle HelpIntent"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('AMAZON.HelpIntent')(handler_input)
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In HelpHandler')
-
         text = sanitise_speech_output('AskNavidrome ermöglicht die Wiedergabe deiner Musikbibliothek über Navidrome.')
         handler_input.response_builder.speak(text)
-
         return handler_input.response_builder.response
 
 
 class NaviSonicPlayMusicByArtist(AbstractRequestHandler):
-    """Play a selection of songs for the given artist"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicPlayMusicByArtist')(handler_input)
 
@@ -268,25 +236,28 @@ class NaviSonicPlayMusicByArtist(AbstractRequestHandler):
         else:
             artist_album_lookup = connection.albums_by_artist(artist_lookup[0].get('id'))
             song_id_list = connection.build_song_list_from_albums(artist_album_lookup, min_song_count)
-            play_queue.clear()
 
-            controller.enqueue_songs(connection, play_queue, [song_id_list[0], song_id_list[1]])
-            backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
-            backgroundProcess.start()
+            if not song_id_list:
+                text = sanitise_speech_output(f"Ich konnte keine Songs von {artist.value} in der Bibliothek finden.")
+                handler_input.response_builder.speak(text).ask(text)
+                return handler_input.response_builder.response
+
+            play_queue.clear()
+            controller.enqueue_songs(connection, play_queue, song_id_list[:2])
+
+            if len(song_id_list) > 2:
+                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                backgroundProcess.start()
 
             speech = sanitise_speech_output(f'Ich spiele Musik von: {artist.value}')
             logger.info(speech)
-
             card = {'title': 'AskNavidrome', 'text': speech}
-
             play_queue.shuffle()
             track_details = play_queue.get_next_track()
             return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class NaviSonicPlayAlbumByArtist(AbstractRequestHandler):
-    """Play a given album by a given artist"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicPlayAlbumByArtist')(handler_input)
 
@@ -303,14 +274,12 @@ class NaviSonicPlayAlbumByArtist(AbstractRequestHandler):
 
         if artist is not None and album is not None:
             logger.debug(f'Searching for the album {album.value} by {artist.value}')
-
             artist_lookup = connection.search_artist(artist.value)
 
             if artist_lookup is None:
                 text = sanitise_speech_output(f"Ich konnte den Künstler {artist.value} nicht in der Bibliothek finden.")
                 handler_input.response_builder.speak(text).ask(text)
                 return handler_input.response_builder.response
-
             else:
                 artist_album_lookup = connection.albums_by_artist(artist_lookup[0].get('id'))
                 result = [album_result for album_result in artist_album_lookup if album_result.get('name').lower() == album.value.lower()]
@@ -321,66 +290,70 @@ class NaviSonicPlayAlbumByArtist(AbstractRequestHandler):
                     return handler_input.response_builder.response
 
                 song_id_list = connection.build_song_list_from_albums(result, -1)
-                play_queue.clear()
 
-                controller.enqueue_songs(connection, play_queue, [song_id_list[0], song_id_list[1]])
-                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
-                backgroundProcess.start()
+                if not song_id_list:
+                    text = sanitise_speech_output(f"Ich konnte keine Songs im Album {album.value} von {artist.value} finden.")
+                    handler_input.response_builder.speak(text).ask(text)
+                    return handler_input.response_builder.response
+
+                play_queue.clear()
+                controller.enqueue_songs(connection, play_queue, song_id_list[:2])
+
+                if len(song_id_list) > 2:
+                    backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                    backgroundProcess.start()
 
                 speech = sanitise_speech_output(f'Ich spiele {album.value} von: {artist.value}')
                 logger.info(speech)
                 card = {'title': 'AskNavidrome', 'text': speech}
                 track_details = play_queue.get_next_track()
-
                 return controller.start_playback('play', speech, card, track_details, handler_input)
 
         elif artist is None and album:
             logger.debug(f'Searching for the album {album.value}')
-
             result = connection.search_album(album.value)
 
             if result is None:
                 text = sanitise_speech_output(f"Ich konnte das Album {album.value} nicht in der Bibliothek finden.")
                 handler_input.response_builder.speak(text).ask(text)
                 return handler_input.response_builder.response
-
             else:
                 song_id_list = connection.build_song_list_from_albums(result, -1)
-                play_queue.clear()
 
-                controller.enqueue_songs(connection, play_queue, [song_id_list[0], song_id_list[1]])
-                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
-                backgroundProcess.start()
+                if not song_id_list:
+                    text = sanitise_speech_output(f"Ich konnte keine Songs im Album {album.value} finden.")
+                    handler_input.response_builder.speak(text).ask(text)
+                    return handler_input.response_builder.response
+
+                play_queue.clear()
+                controller.enqueue_songs(connection, play_queue, song_id_list[:2])
+
+                if len(song_id_list) > 2:
+                    backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                    backgroundProcess.start()
 
                 speech = sanitise_speech_output(f'Ich spiele {album.value}')
                 logger.info(speech)
                 card = {'title': 'AskNavidrome', 'text': speech}
                 track_details = play_queue.get_next_track()
-
                 return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class NaviSonicPlaySongByArtist(AbstractRequestHandler):
-    """Play the given song by the given artist"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicPlaySongByArtist')(handler_input)
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In NaviSonicPlaySongByArtist')
-
         artist = get_slot_value_v2(handler_input, 'artist')
         song = get_slot_value_v2(handler_input, 'song')
-
         logger.debug(f'Searching for the song {song.value} by {artist.value}')
-
         artist_lookup = connection.search_artist(artist.value)
 
         if artist_lookup is None:
             text = sanitise_speech_output(f"Ich konnte den Künstler {artist.value} nicht in der Bibliothek finden.")
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
-
         else:
             artist_id = artist_lookup[0].get('id')
             song_list = connection.search_song(song.value)
@@ -393,18 +366,14 @@ class NaviSonicPlaySongByArtist(AbstractRequestHandler):
 
             play_queue.clear()
             controller.enqueue_songs(connection, play_queue, song_dets)
-
             speech = sanitise_speech_output(f'Ich spiele {song.value} von {artist.value}')
             logger.info(speech)
             card = {'title': 'AskNavidrome', 'text': speech}
             track_details = play_queue.get_next_track()
-
             return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class NaviSonicPlayPlaylist(AbstractRequestHandler):
-    """Play the given playlist"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicPlayPlaylist')(handler_input)
 
@@ -423,26 +392,29 @@ class NaviSonicPlayPlaylist(AbstractRequestHandler):
             text = sanitise_speech_output("Ich konnte die Playlist " + str(playlist.value) + ' nicht in der Bibliothek finden.')
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
-
         else:
             song_id_list = connection.build_song_list_from_playlist(playlist_id)
-            play_queue.clear()
 
-            controller.enqueue_songs(connection, play_queue, [song_id_list[0], song_id_list[1]])
-            backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
-            backgroundProcess.start()
+            if not song_id_list:
+                text = sanitise_speech_output("Die Playlist " + str(playlist.value) + ' enthält keine Songs.')
+                handler_input.response_builder.speak(text).ask(text)
+                return handler_input.response_builder.response
+
+            play_queue.clear()
+            controller.enqueue_songs(connection, play_queue, song_id_list[:2])
+
+            if len(song_id_list) > 2:
+                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                backgroundProcess.start()
 
             speech = sanitise_speech_output('Ich spiele die Playlist ' + str(playlist.value))
             logger.info(speech)
             card = {'title': 'AskNavidrome', 'text': speech}
             track_details = play_queue.get_next_track()
-
             return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class NaviSonicPlayMusicByGenre(AbstractRequestHandler):
-    """Play songs from the given genre"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicPlayMusicByGenre')(handler_input)
 
@@ -457,30 +429,27 @@ class NaviSonicPlayMusicByGenre(AbstractRequestHandler):
         genre = get_slot_value_v2(handler_input, 'genre')
         song_id_list = connection.build_song_list_from_genre(genre.value, min_song_count)
 
-        if song_id_list is None:
+        if not song_id_list:
             text = sanitise_speech_output(f"Ich konnte keine {genre.value} Songs in der Bibliothek finden.")
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
-
         else:
             random.shuffle(song_id_list)
             play_queue.clear()
+            controller.enqueue_songs(connection, play_queue, song_id_list[:2])
 
-            controller.enqueue_songs(connection, play_queue, [song_id_list[0], song_id_list[1]])
-            backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
-            backgroundProcess.start()
+            if len(song_id_list) > 2:
+                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                backgroundProcess.start()
 
             speech = sanitise_speech_output(f'Ich spiele {genre.value} Musik')
             logger.info(speech)
             card = {'title': 'AskNavidrome', 'text': speech}
             track_details = play_queue.get_next_track()
-
             return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class NaviSonicPlayMusicRandom(AbstractRequestHandler):
-    """Play a random selection of music."""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicPlayMusicRandom')(handler_input)
 
@@ -494,30 +463,27 @@ class NaviSonicPlayMusicRandom(AbstractRequestHandler):
 
         song_id_list = connection.build_random_song_list(min_song_count)
 
-        if song_id_list is None:
+        if not song_id_list:
             text = sanitise_speech_output("Ich konnte keine Songs in der Bibliothek finden.")
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
-
         else:
             random.shuffle(song_id_list)
             play_queue.clear()
+            controller.enqueue_songs(connection, play_queue, song_id_list[:2])
 
-            controller.enqueue_songs(connection, play_queue, [song_id_list[0], song_id_list[1]])
-            backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
-            backgroundProcess.start()
+            if len(song_id_list) > 2:
+                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                backgroundProcess.start()
 
             speech = sanitise_speech_output('Ich spiele zufällige Musik')
             logger.info(speech)
             card = {'title': 'AskNavidrome', 'text': speech}
             track_details = play_queue.get_next_track()
-
             return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class NaviSonicPlayFavouriteSongs(AbstractRequestHandler):
-    """Play all starred / liked songs."""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicPlayFavouriteSongs')(handler_input)
 
@@ -531,98 +497,75 @@ class NaviSonicPlayFavouriteSongs(AbstractRequestHandler):
 
         song_id_list = connection.build_song_list_from_favourites()
 
-        if song_id_list is None:
+        if not song_id_list:
             text = sanitise_speech_output("Du hast keine Favoriten in der Bibliothek.")
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
-
         else:
             random.shuffle(song_id_list)
             play_queue.clear()
+            controller.enqueue_songs(connection, play_queue, song_id_list[:2])
 
-            controller.enqueue_songs(connection, play_queue, [song_id_list[0], song_id_list[1]])
-            backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
-            backgroundProcess.start()
+            if len(song_id_list) > 2:
+                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                backgroundProcess.start()
 
             speech = sanitise_speech_output('Ich spiele deine Favoriten.')
             logger.info(speech)
             card = {'title': 'AskNavidrome', 'text': speech}
             track_details = play_queue.get_next_track()
-
             return controller.start_playback('play', speech, card, track_details, handler_input)
 
 
 class NaviSonicRandomiseQueue(AbstractRequestHandler):
-    """Shuffle the current play queue"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicRandomiseQueue')(handler_input)
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In NaviSonicRandomiseQueue Handler')
-
         play_queue.shuffle()
         play_queue.sync()
-
         return handler_input.response_builder.response
 
 
 class NaviSonicSongDetails(AbstractRequestHandler):
-    """Returns information on the track that is currently playing"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicSongDetails')(handler_input)
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In NaviSonicSongDetails Handler')
-
         current_track = play_queue.get_current_track()
-
         title = sanitise_speech_output(current_track.title)
         artist = sanitise_speech_output(current_track.artist)
         album = sanitise_speech_output(current_track.album)
-
         text = f'Das ist {title} von {artist}, vom Album {album}'
         handler_input.response_builder.speak(text)
-
         return handler_input.response_builder.response
 
 
 class NaviSonicStarSong(AbstractRequestHandler):
-    """Star / favourite the current song"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicStarSong')(handler_input)
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In NaviSonicStarSong Handler')
-
         current_track = play_queue.get_current_track()
         song_id = current_track.id
         connection.star_entry(song_id, 'song')
-
         return handler_input.response_builder.response
 
 
 class NaviSonicUnstarSong(AbstractRequestHandler):
-    """Unstar the current song"""
-
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return is_intent_name('NaviSonicUnstarSong')(handler_input)
 
     def handle(self, handler_input: HandlerInput) -> Response:
         logger.debug('In NaviSonicUnstarSong Handler')
-
         current_track = play_queue.get_current_track()
         song_id = current_track.id
         connection.star_entry(song_id, 'song')
         connection.unstar_entry(song_id, 'song')
-
         return handler_input.response_builder.response
-
-#
-# AudioPlayer Handlers
-#
 
 
 class PlaybackStartedHandler(AbstractRequestHandler):
@@ -696,7 +639,6 @@ class ResumePlaybackHandler(AbstractRequestHandler):
         if current_track.offset > 0:
             logger.info('Resuming ' + str(current_track.title))
             return controller.start_playback('play', None, None, current_track, handler_input)
-
         elif play_queue.get_queue_count() > 0 and current_track.offset == 0:
             logger.info('Resuming - There was no paused track, getting next track from queue')
             track_details = play_queue.get_next_track()
@@ -742,11 +684,6 @@ class PlaybackFailedEventHandler(AbstractRequestHandler):
         return controller.start_playback('play', None, None, track_details, handler_input)
 
 
-#
-# Exception Handlers
-#
-
-
 class SystemExceptionHandler(AbstractExceptionHandler):
     def can_handle(self, handler_input: HandlerInput, exception: Exception) -> bool:
         return is_request_type('System.ExceptionEncountered')(handler_input)
@@ -763,7 +700,6 @@ class SystemExceptionHandler(AbstractExceptionHandler):
 
         speech = sanitise_speech_output("Entschuldigung, ich habe das nicht verstanden. Kannst du es bitte wiederholen?")
         handler_input.response_builder.speak(speech).ask(speech)
-
         return handler_input.response_builder.response
 
 
@@ -781,13 +717,7 @@ class GeneralExceptionHandler(AbstractExceptionHandler):
 
         speech = sanitise_speech_output("Entschuldigung, ich habe das nicht verstanden. Kannst du es bitte wiederholen?")
         handler_input.response_builder.speak(speech).ask(speech)
-
         return handler_input.response_builder.response
-
-
-#
-# Request Interceptors
-#
 
 
 class LoggingRequestInterceptor(AbstractRequestInterceptor):
@@ -798,10 +728,6 @@ class LoggingRequestInterceptor(AbstractRequestInterceptor):
 class LoggingResponseInterceptor(AbstractResponseInterceptor):
     def process(self, handler_input: HandlerInput, response: Response):
         logger.debug(f'Response sent: {response}')
-
-#
-# Functions
-#
 
 
 def sanitise_speech_output(speech_string: str) -> str:
@@ -832,7 +758,6 @@ def queue_worker_thread(connection: object, play_queue: object, song_id_list: li
     logger.debug('Finished playlist processing!')
 
 
-# Register Intent Handlers
 sb.add_request_handler(LaunchRequestHandler())
 sb.add_request_handler(CheckAudioInterfaceHandler())
 sb.add_request_handler(SkillEventHandler())
@@ -849,7 +774,6 @@ sb.add_request_handler(NaviSonicSongDetails())
 sb.add_request_handler(NaviSonicStarSong())
 sb.add_request_handler(NaviSonicUnstarSong())
 
-# Register AutoPlayer Handlers
 sb.add_request_handler(PlaybackStartedHandler())
 sb.add_request_handler(PlaybackStoppedHandler())
 sb.add_request_handler(PlaybackNearlyFinishedHandler())
@@ -860,7 +784,6 @@ sb.add_request_handler(PreviousPlaybackHandler())
 sb.add_request_handler(ResumePlaybackHandler())
 sb.add_request_handler(PlaybackFailedEventHandler())
 
-# Register Exception Handlers
 sb.add_exception_handler(SystemExceptionHandler())
 sb.add_exception_handler(GeneralExceptionHandler())
 
