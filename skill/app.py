@@ -413,6 +413,46 @@ class NaviSonicPlayPlaylist(AbstractRequestHandler):
             track_details = play_queue.get_next_track()
             return controller.start_playback('play', speech, card, track_details, handler_input)
 
+class NaviSonicPlayPlaylistRandom(AbstractRequestHandler):
+    def can_handle(self, handler_input: HandlerInput) -> bool:
+        return is_intent_name('NaviSonicPlayPlaylistRandom')(handler_input)
+
+    def handle(self, handler_input: HandlerInput) -> Response:
+        global backgroundProcess
+        logger.debug('In NaviSonicPlayPlaylistRandom')
+
+        if backgroundProcess is not None:
+            backgroundProcess.terminate()
+            backgroundProcess.join()
+
+        playlist = get_slot_value_v2(handler_input, 'playlist')
+        playlist_id = connection.search_playlist(playlist.value)
+
+        if playlist_id is None:
+            text = sanitise_speech_output("Ich konnte die Playlist " + str(playlist.value) + ' nicht in der Bibliothek finden.')
+            handler_input.response_builder.speak(text).ask(text)
+            return handler_input.response_builder.response
+        else:
+            song_id_list = connection.build_song_list_from_playlist(playlist_id)
+
+            if not song_id_list:
+                text = sanitise_speech_output("Die Playlist " + str(playlist.value) + ' enthält keine Songs.')
+                handler_input.response_builder.speak(text).ask(text)
+                return handler_input.response_builder.response
+
+            random.shuffle(song_id_list)
+            play_queue.clear()
+            controller.enqueue_songs(connection, play_queue, song_id_list[:2])
+
+            if len(song_id_list) > 2:
+                backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
+                backgroundProcess.start()
+
+            speech = sanitise_speech_output('Ich spiele die Playlist ' + str(playlist.value) + ' in zufälliger Reihenfolge')
+            logger.info(speech)
+            card = {'title': 'AskNavidrome', 'text': speech}
+            track_details = play_queue.get_next_track()
+            return controller.start_playback('play', speech, card, track_details, handler_input)
 
 class NaviSonicPlayMusicByGenre(AbstractRequestHandler):
     def can_handle(self, handler_input: HandlerInput) -> bool:
@@ -773,6 +813,7 @@ sb.add_request_handler(NaviSonicRandomiseQueue())
 sb.add_request_handler(NaviSonicSongDetails())
 sb.add_request_handler(NaviSonicStarSong())
 sb.add_request_handler(NaviSonicUnstarSong())
+sb.add_request_handler(NaviSonicPlayPlaylistRandom())
 
 sb.add_request_handler(PlaybackStartedHandler())
 sb.add_request_handler(PlaybackStoppedHandler())
