@@ -162,6 +162,14 @@ except:
 logger.info('AskNavidrome Web Service is ready to start!')
 
 
+def get_slot_value_with_resolution(slot) -> str:
+    """Get canonical slot value from entity resolution if available, else raw value."""
+    try:
+        return slot.resolutions.resolutions_per_authority[0].values[0].value.name
+    except (AttributeError, IndexError, TypeError):
+        return slot.value
+
+
 class LaunchRequestHandler(AbstractRequestHandler):
     def can_handle(self, handler_input: HandlerInput) -> bool:
         return (
@@ -232,7 +240,6 @@ class NaviSonicPlayMusicByArtist(AbstractRequestHandler):
             text = sanitise_speech_output(f"Ich konnte den Künstler {artist.value} nicht in der Bibliothek finden.")
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
-
         else:
             artist_album_lookup = connection.albums_by_artist(artist_lookup[0].get('id'))
             song_id_list = connection.build_song_list_from_albums(artist_album_lookup, min_song_count)
@@ -386,17 +393,18 @@ class NaviSonicPlayPlaylist(AbstractRequestHandler):
             backgroundProcess.join()
 
         playlist = get_slot_value_v2(handler_input, 'playlist')
-        playlist_id = connection.search_playlist(playlist.value)
+        playlist_name = get_slot_value_with_resolution(playlist)
+        playlist_id = connection.search_playlist(playlist_name)
 
         if playlist_id is None:
-            text = sanitise_speech_output("Ich konnte die Playlist " + str(playlist.value) + ' nicht in der Bibliothek finden.')
+            text = sanitise_speech_output("Ich konnte die Playlist " + str(playlist_name) + ' nicht in der Bibliothek finden.')
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
         else:
             song_id_list = connection.build_song_list_from_playlist(playlist_id)
 
             if not song_id_list:
-                text = sanitise_speech_output("Die Playlist " + str(playlist.value) + ' enthält keine Songs.')
+                text = sanitise_speech_output("Die Playlist " + str(playlist_name) + ' enthält keine Songs.')
                 handler_input.response_builder.speak(text).ask(text)
                 return handler_input.response_builder.response
 
@@ -407,11 +415,12 @@ class NaviSonicPlayPlaylist(AbstractRequestHandler):
                 backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
                 backgroundProcess.start()
 
-            speech = sanitise_speech_output('Ich spiele die Playlist ' + str(playlist.value))
+            speech = sanitise_speech_output('Ich spiele die Playlist ' + str(playlist_name))
             logger.info(speech)
             card = {'title': 'AskNavidrome', 'text': speech}
             track_details = play_queue.get_next_track()
             return controller.start_playback('play', speech, card, track_details, handler_input)
+
 
 class NaviSonicPlayPlaylistRandom(AbstractRequestHandler):
     def can_handle(self, handler_input: HandlerInput) -> bool:
@@ -426,17 +435,18 @@ class NaviSonicPlayPlaylistRandom(AbstractRequestHandler):
             backgroundProcess.join()
 
         playlist = get_slot_value_v2(handler_input, 'playlist')
-        playlist_id = connection.search_playlist(playlist.value)
+        playlist_name = get_slot_value_with_resolution(playlist)
+        playlist_id = connection.search_playlist(playlist_name)
 
         if playlist_id is None:
-            text = sanitise_speech_output("Ich konnte die Playlist " + str(playlist.value) + ' nicht in der Bibliothek finden.')
+            text = sanitise_speech_output("Ich konnte die Playlist " + str(playlist_name) + ' nicht in der Bibliothek finden.')
             handler_input.response_builder.speak(text).ask(text)
             return handler_input.response_builder.response
         else:
             song_id_list = connection.build_song_list_from_playlist(playlist_id)
 
             if not song_id_list:
-                text = sanitise_speech_output("Die Playlist " + str(playlist.value) + ' enthält keine Songs.')
+                text = sanitise_speech_output("Die Playlist " + str(playlist_name) + ' enthält keine Songs.')
                 handler_input.response_builder.speak(text).ask(text)
                 return handler_input.response_builder.response
 
@@ -448,11 +458,12 @@ class NaviSonicPlayPlaylistRandom(AbstractRequestHandler):
                 backgroundProcess = Process(target=queue_worker_thread, args=(connection, play_queue, song_id_list[2:]))
                 backgroundProcess.start()
 
-            speech = sanitise_speech_output('Ich spiele die Playlist ' + str(playlist.value) + ' in zufälliger Reihenfolge')
+            speech = sanitise_speech_output('Ich spiele die Playlist ' + str(playlist_name) + ' in zufälliger Reihenfolge')
             logger.info(speech)
             card = {'title': 'AskNavidrome', 'text': speech}
             track_details = play_queue.get_next_track()
             return controller.start_playback('play', speech, card, track_details, handler_input)
+
 
 class NaviSonicPlayMusicByGenre(AbstractRequestHandler):
     def can_handle(self, handler_input: HandlerInput) -> bool:
@@ -806,6 +817,7 @@ sb.add_request_handler(NaviSonicPlayMusicByArtist())
 sb.add_request_handler(NaviSonicPlayAlbumByArtist())
 sb.add_request_handler(NaviSonicPlaySongByArtist())
 sb.add_request_handler(NaviSonicPlayPlaylist())
+sb.add_request_handler(NaviSonicPlayPlaylistRandom())
 sb.add_request_handler(NaviSonicPlayFavouriteSongs())
 sb.add_request_handler(NaviSonicPlayMusicByGenre())
 sb.add_request_handler(NaviSonicPlayMusicRandom())
@@ -813,7 +825,6 @@ sb.add_request_handler(NaviSonicRandomiseQueue())
 sb.add_request_handler(NaviSonicSongDetails())
 sb.add_request_handler(NaviSonicStarSong())
 sb.add_request_handler(NaviSonicUnstarSong())
-sb.add_request_handler(NaviSonicPlayPlaylistRandom())
 
 sb.add_request_handler(PlaybackStartedHandler())
 sb.add_request_handler(PlaybackStoppedHandler())
